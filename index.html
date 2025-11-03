@@ -4,7 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Space Colony Portfolio - Data Rover</title>
-    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 
+      *** FIX: Add Import Map ***
+      This tells the browser how to resolve "bare" module specifiers 
+      like 'three' or 'three/examples/jsm/...'
+    -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js",
+        "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+      }
+    }
+    </script>
 
     <style>
         /* Ensure the body and canvas cover the full viewport */
@@ -77,54 +92,80 @@
     </div>
 
     <script type="module">
-        import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
-        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/controls/OrbitControls.js';
+        // *** FIX 1: Use bare module specifiers (defined in import map) ***
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
         // Three.js setup variables
         let scene, camera, renderer, controls;
         let container;
         let raycaster;
-        let pointer = new THREE.Vector2();
+        
+        // Declare THREE-dependent objects
+        let pointer = null; 
+        let clock = null; 
+        let roverForce = null; 
+        let roverVelocity = null;
+        
         let projects = [];
         let intersectedObject = null;
         let projectMaterial, roverMaterial, groundMaterial;
 
         // --- Rover Physics Variables ---
-        let clock = new THREE.Clock(); // For delta time calculation
         const keyStates = {};
         
-        let roverMass = 5.0;            // Mass of the rover (for F = ma)
-        const thrustMagnitude = 20.0;   // Force applied by one thruster
-        const roverFriction = 0.75;     // Friction (damping) applied to horizontal velocity (per second)
-        const airFriction = 0.99;       // Air drag applied to vertical velocity (per second)
+        let roverMass = 5.0;            
+        const thrustMagnitude = 20.0;   
+        const roverFriction = 0.75;     
+        const airFriction = 0.99;       
         const lunarGravity = 0.5;
-        const rotationSpeedFactor = 0.3;
-        const brakingSpeed = 0.3;
+        const rotationSpeedFactor = 0.3; 
+        const brakingSpeed = 0.3; 
 
-        let roverAngularVelocity = 0; // The current speed of rotation (yaw)
-        const roverAngularAcceleration = 3.0; // How quickly it starts/stops turning (TWEAK THIS)
-        const roverAngularDamping = 0.5; // How quickly it slows down when keys are released (TWEAK THIS)
-        
-        let roverForce = new THREE.Vector3();
-        let roverVelocity = new THREE.Vector3();
-        const groundCollisionY = 0.0; // The Y-coordinate of the ground plane
+        // Angular Constants (for smooth rotation)
+        let roverAngularVelocity = 0; 
+        const roverAngularAcceleration = 3.0; 
+        const roverAngularDamping = 0.5; 
+
+        // Derived Braking constants 
+        const turnLinearBrakingFactor = 0.6; 
+        const generalLinearBrakingFactor = 0.1; 
+
+        const groundCollisionY = 0.0; 
 
         let rover;
 
-        const infoBox = document.getElementById('info-box');
-        const infoTitle = document.getElementById('info-title');
-        const infoDescription = document.getElementById('info-description');
-        const infoLink = document.getElementById('info-link');
-        const instructionsOverlay = document.getElementById('instructions');
-        const startExplorationBtn = document.getElementById('start-exploration');
+        // *** FIX 2: Declare DOM element variables here (as null) ***
+        let infoBox = null;
+        let infoTitle = null;
+        let infoDescription = null;
+        let infoLink = null;
+        let instructionsOverlay = null;
+        let startExplorationBtn = null;
+
 
         // --- Initialization ---
         function init() {
             container = document.getElementById('three-container');
 
+            // *** FIX 3: Initialize ALL external objects (THREE and DOM) INSIDE init() ***
+            clock = new THREE.Clock(); 
+            pointer = new THREE.Vector2(); 
+            roverForce = new THREE.Vector3(); 
+            roverVelocity = new THREE.Vector3();
+            
+            // Initialize DOM elements
+            infoBox = document.getElementById('info-box');
+            infoTitle = document.getElementById('info-title');
+            infoDescription = document.getElementById('info-description');
+            infoLink = document.getElementById('info-link');
+            instructionsOverlay = document.getElementById('instructions');
+            startExplorationBtn = document.getElementById('start-exploration');
+
+            
             // 1. Scene & Background (Starry Sky)
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0A192F); // Deep space background
+            scene.background = new THREE.Color(0x0A192F); 
 
             // Let's create a simple starfield for the background
             const starGeometry = new THREE.BufferGeometry();
@@ -148,7 +189,7 @@
 
             // 2. Camera
             camera = new THREE.PerspectiveCamera(
-                45, // field of view
+                45, 
                 container.clientWidth / container.clientHeight,
                 0.1,
                 1000
@@ -159,13 +200,13 @@
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(container.clientWidth, container.clientHeight);
-            renderer.shadowMap.enabled = true; // Enable shadows
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+            renderer.shadowMap.enabled = true; 
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
             container.appendChild(renderer.domElement);
 
             // 4. Materials (defined once for consistency)
             projectMaterial = new THREE.MeshStandardMaterial({
-                color: 0x0EA5E9, // Tailwind Sky-500
+                color: 0x0EA5E9, 
                 metalness: 0.7,
                 roughness: 0.3,
                 emissive: 0x0EA5E9,
@@ -173,13 +214,13 @@
                 flatShading: true
             });
             roverMaterial = new THREE.MeshStandardMaterial({
-                color: 0xFBBD23, // Tailwind Amber-400
+                color: 0xFBBD23, 
                 metalness: 0.8,
                 roughness: 0.2,
                 flatShading: true
             });
             groundMaterial = new THREE.MeshStandardMaterial({
-                color: 0x374151, // Tailwind Gray-700
+                color: 0x374151, 
                 metalness: 0.4,
                 roughness: 0.8,
                 flatShading: true
@@ -195,26 +236,27 @@
             raycaster = new THREE.Raycaster();
 
             // 8. Controls (OrbitControls, now targeting the Rover)
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; // smooth camera movement
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; 
             controls.dampingFactor = 0.05;
             controls.minDistance = 5;
             controls.maxDistance = 30;
-            controls.target.copy(rover.position); // Camera orbits around the Rover
-            controls.maxPolarAngle = Math.PI / 2 - 0.1; // Prevent camera from going below ground
+            controls.target.copy(rover.position); 
+            controls.maxPolarAngle = Math.PI / 2 - 0.1; 
 
-            // Event Listeners
+            // Event Listeners (Listeners are attached inside init() now)
             onWindowResize();
             window.addEventListener('resize', onWindowResize);
             document.addEventListener('pointermove', onPointerMove);
-            document.addEventListener('keydown', onKeyDown, false); // Physics input
-            document.addEventListener('keyup', onKeyUp, false);     // Physics input
+            document.addEventListener('keydown', onKeyDown, false); 
+            document.addEventListener('keyup', onKeyUp, false); 
             
             // Hide instructions when "Start Exploration" is clicked
+            // This will now work because startExplorationBtn is guaranteed to be found
             startExplorationBtn.addEventListener('click', () => {
                 instructionsOverlay.style.display = 'none';
-                clock.start(); // Start the clock for physics time tracking
-                animate(); // Start the animation loop after instructions are dismissed
+                clock.start(); 
+                animate(); 
             });
 
             // Initial setup: call render once to show the initial scene
@@ -228,13 +270,13 @@
             const positionAttribute = groundGeometry.attributes.position;
             for (let i = 0; i < positionAttribute.count; i++) {
                 const z = positionAttribute.getZ(i);
-                positionAttribute.setZ(i, z + Math.random() * 0.5 - 0.25); // Minor height variations
+                positionAttribute.setZ(i, z + Math.random() * 0.5 - 0.25); 
             }
-            groundGeometry.computeVertexNormals(); // Recalculate normals after changing vertices
+            groundGeometry.computeVertexNormals(); 
 
             const ground = new THREE.Mesh(groundGeometry, groundMaterial);
             ground.rotation.x = -Math.PI / 2;
-            ground.position.y = groundCollisionY; // Ground is now at Y=0
+            ground.position.y = groundCollisionY; 
             ground.receiveShadow = true;
             scene.add(ground);
 
@@ -252,12 +294,12 @@
                 if (data.type === "monolith") {
                     const geo = new THREE.BoxGeometry(2, 4, 2);
                     mesh = new THREE.Mesh(geo, projectMaterial.clone());
-                    mesh.position.y = 2.0; // Adjusted for Y=0 ground
+                    mesh.position.y = 2.0; 
                 } else if (data.type === "dome") {
-                    const geo = new THREE.SphereGeometry(2, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2); // Hemisphere
+                    const geo = new THREE.SphereGeometry(2, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2); 
                     mesh = new THREE.Mesh(geo, projectMaterial.clone());
                     mesh.rotation.x = -Math.PI / 2;
-                    mesh.position.y = 2.0; // Adjusted for Y=0 ground
+                    mesh.position.y = 2.0; 
                 } else if (data.type === "comm") {
                     // Communication dish
                     const dishGeo = new THREE.CylinderGeometry(0.2, 0.2, 3, 8);
@@ -272,13 +314,13 @@
                     mesh = new THREE.Group();
                     mesh.add(dishMesh);
                     mesh.add(antennaMesh);
-                    mesh.position.y = 1.0; // Adjusted for Y=0 ground
+                    mesh.position.y = 1.0; 
                 }
 
                 if (mesh) {
                     mesh.position.x = data.position.x;
                     mesh.position.z = data.position.z;
-                    mesh.userData = data; // Attach data for raycasting
+                    mesh.userData = data; 
                     mesh.castShadow = true;
                     scene.add(mesh);
                     projects.push(mesh);
@@ -288,18 +330,17 @@
             // Create Data Rover
             const bodyGeo = new THREE.BoxGeometry(1, 0.5, 1.5);
             const bodyMesh = new THREE.Mesh(bodyGeo, roverMaterial);
-            bodyMesh.position.y = 0.25; // Half body height
-            bodyMesh.castShadow = true;
+            bodyMesh.position.y = 0.25; 
 
             const antennaGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
             const antennaMesh = new THREE.Mesh(antennaGeo, roverMaterial);
-            antennaMesh.position.set(0, 0.75, -0.5); // Top of body + offset
+            antennaMesh.position.set(0, 0.75, -0.5); 
             antennaMesh.castShadow = true;
 
             rover = new THREE.Group();
             rover.add(bodyMesh);
             rover.add(antennaMesh);
-            rover.position.set(0, 0.5, 0); // Start at Y=0.5 (Hover altitude)
+            rover.position.set(0, 0.5, 0); 
             scene.add(rover);
         }
 
@@ -312,7 +353,6 @@
             const sunLight = new THREE.DirectionalLight(0xffffff, 5);
             sunLight.position.set(20, 30, 20);
             sunLight.castShadow = true;
-            // Configure shadow properties for better quality
             sunLight.shadow.mapSize.width = 2048;
             sunLight.shadow.mapSize.height = 2048;
             sunLight.shadow.camera.near = 0.5;
@@ -336,17 +376,22 @@
 
         function onKeyUp(event) {
             keyStates[event.key.toLowerCase()] = false;
-            // When key is released, reset the accumulated force for that axis
-            if (event.key.toLowerCase() === 'w' || event.key.toLowerCase() === 's') {
+            
+            // When key is released, reset the accumulated force for that axis (this is physics 
+            // from the old version, kept for compatibility, but the integration step below is primary)
+            if (roverForce && (event.key.toLowerCase() === 'w' || event.key.toLowerCase() === 's')) {
                 roverForce.z = 0;
             }
-            if (event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'e') {
+            if (roverForce && (event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'e')) {
                 roverForce.y = 0;
             }
         }
 
         // --- Event Handlers (Resize and Pointer Move) ---
         function onWindowResize() {
+            // Check if camera and renderer are initialized
+            if (!camera || !renderer) return;
+            
             const width = container.clientWidth;
             const height = container.clientHeight;
 
@@ -357,6 +402,9 @@
         }
 
         function onPointerMove(event) {
+            // FIX: Check if pointer is initialized before using it
+            if (!pointer || !raycaster || !camera || !projects) return; 
+
             // Calculate mouse position in normalized device coordinates (-1 to +1)
             pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
             pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -392,12 +440,16 @@
                     });
 
                     // Update UI Info Box
-                    infoTitle.textContent = intersectedObject.userData.name;
-                    infoDescription.textContent = intersectedObject.userData.description;
-                    infoLink.href = intersectedObject.userData.link;
-                    infoLink.classList.remove('invisible');
-                    infoBox.style.opacity = '1';
-                    infoBox.style.pointerEvents = 'auto';
+                    if(infoTitle) infoTitle.textContent = intersectedObject.userData.name;
+                    if(infoDescription) infoDescription.textContent = intersectedObject.userData.description;
+                    if(infoLink) {
+                        infoLink.href = intersectedObject.userData.link;
+                        infoLink.classList.remove('invisible');
+                    }
+                    if(infoBox) {
+                        infoBox.style.opacity = '1';
+                        infoBox.style.pointerEvents = 'auto';
+                    }
                 }
             } else {
                 // No intersection
@@ -406,9 +458,9 @@
                         if (child.isMesh) child.material = projectMaterial.clone();
                     });
                     intersectedObject = null;
-                    infoBox.style.opacity = '0';
-                    infoLink.classList.add('invisible');
-                    infoBox.style.pointerEvents = 'none';
+                    if(infoBox) infoBox.style.opacity = '0';
+                    if(infoLink) infoLink.classList.add('invisible');
+                    if(infoBox) infoBox.style.pointerEvents = 'none';
                 }
             }
         }
@@ -416,137 +468,158 @@
         // --- Animation Loop (Physics Core) ---
         function animate() {
             requestAnimationFrame(animate);
-            let angularAcceleration = 0;
+            
+            // FIX: Check if all physics objects are initialized before using them
+            if (!clock || !controls || !roverForce || !roverVelocity || !rover) return; 
+
             const dt = clock.getDelta(); // Get time elapsed since last frame
             controls.update();
 
+            // Damping factor for linear braking while turning (0.6 retained speed)
+            const turnDamping = Math.pow(turnLinearBrakingFactor, dt);
+            // Damping factor for full stop on key release (0.1 retained speed)
+            const generalBrakingDamping = Math.pow(generalLinearBrakingFactor, dt);
+
             // 1. Reset Force Vector for this frame
             roverForce.set(0, 0, 0);
+            roverForce.y -= roverMass * lunarGravity; // Apply constant Lunar Gravity
 
-            // 2. Handle Rotation (A/D)
+            // --- 2. Handle Rotation (A/D) with Acceleration/Damping ---
+            let angularAcceleration = 0;
+            const isTranslating = keyStates['w'] || keyStates['s']; // Check for forward/backward movement
+            const isRotating = keyStates['a'] || keyStates['d'];
+
             if (keyStates['a']) {
                 angularAcceleration += roverAngularAcceleration;
+                
+                // APPLY LINEAR BRAKING WHILE TURNING LEFT (Reduces drift)
+                if (isTranslating) {
+                    roverVelocity.x *= turnDamping;
+                    roverVelocity.z *= turnDamping;
+                }
             }
             if (keyStates['d']) {
                 angularAcceleration -= roverAngularAcceleration;
+                
+                // APPLY LINEAR BRAKING WHILE TURNING RIGHT (Reduces drift)
+                if (isTranslating) {
+                    roverVelocity.x *= turnDamping;
+                    roverVelocity.z *= turnDamping;
+                }
             }
-
+            
+            // 3. Update Angular Velocity
             roverAngularVelocity += angularAcceleration * dt;
+
+            // Apply Angular Damping (always applied)
             const angularDampingFactor = Math.pow(roverAngularDamping, dt);
             roverAngularVelocity *= angularDampingFactor;
 
+            // Apply STRONG Angular Braking if keys are released
             if (!keyStates['a'] && !keyStates['d']) {
-                const brakingFactor = Math.pow(0.3, dt);
-                roverAngularVelocity *= brakingFactor;
+                const rotationBrakingFactor = Math.pow(0.3, dt); // Fast rotational stop
+                roverAngularVelocity *= rotationBrakingFactor;
+                
+                // Also apply strong linear braking on rotation release
+                roverVelocity.x *= generalBrakingDamping;
+                roverVelocity.z *= generalBrakingDamping;
             }
 
+            // Apply Rotation to Rover
             rover.rotation.y += roverAngularVelocity * dt;
 
-            // 3. Apply Thrust Forces (W/S & Q/E)
+            // --- 4. Apply Linear Thrust Forces (W/S & Q/E) ---
             const localThrust = new THREE.Vector3(0, 0, 0);
 
             // Forward/Backward (W/S)
             if (keyStates['w']) {
-                localThrust.z -= thrustMagnitude * 1.5; // -Z is forward in Three.js default orientation
+                localThrust.z -= thrustMagnitude; 
             }
             if (keyStates['s']) {
-                localThrust.z += thrustMagnitude * 0.75; // Slower reverse thrust
+                localThrust.z += thrustMagnitude * 0.5; 
             }
 
             // Vertical Movement (Q/E)
             if (keyStates['q']) {
-                localThrust.y += thrustMagnitude;
+                localThrust.y += thrustMagnitude * 0.3; // Milder thrust
             }
             if (keyStates['e']) {
-                localThrust.y -= thrustMagnitude;
+                localThrust.y -= thrustMagnitude * 0.3; // Milder thrust
             }
 
             // Convert local Z thrust to World coordinates and add to global force
             localThrust.applyQuaternion(rover.quaternion);
             roverForce.add(localThrust);
 
-            // *** New Step: Apply Constant Gravity Force ***
-            // F_gravity = mass * acceleration_gravity
-            // Add a constant downward force to the total force vector (F)
-            roverForce.y -= roverMass * lunarGravity; 
-            // **********************************************
-
-            // 4. Integration: Update Velocity using (F/m * dt)
-            // acceleration = force / mass
-            // velocity += acceleration * dt
+            // 5. Integration: Update Velocity using (F/m * dt)
             roverVelocity.x += roverForce.x / roverMass * dt;
             roverVelocity.y += roverForce.y / roverMass * dt;
             roverVelocity.z += roverForce.z / roverMass * dt;
 
 
-            // 5. Apply Damping (Friction)
-            // Use Math.pow(damping, dt) to ensure friction is frame-rate independent.
+            // --- 6. Apply Linear Damping (Friction and Braking) ---
+            const horizontalDampingFactor = Math.pow(roverFriction, dt);
             const verticalDampingFactor = Math.pow(airFriction, dt);
-    
-            // Check if ANY directional movement key is pressed
-            const isMoving = keyStates['w'] || keyStates['s'] || keyStates['a'] || keyStates['d'];
-
-            if (isMoving) {
-                // Normal damping when moving (keeps inertia feeling)
-                const activeDampingFactor = Math.pow(roverFriction, dt);
-                roverVelocity.x *= activeDampingFactor;
-                roverVelocity.z *= activeDampingFactor;
-            } else {
-                // **BRAKING** - Rapidly reduce velocity when keys are released
-                // Use a stronger damping factor (e.g., 0.6) to quickly kill speed
-                const brakingDampingFactor = Math.pow(brakingSpeed, dt);
-                roverVelocity.x *= brakingDampingFactor;
-                roverVelocity.z *= brakingDampingFactor;
-
-                // Optionally, ensure velocity is 0 once below a tiny threshold
-                if (roverVelocity.lengthSq() < 0.001) {
-                    roverVelocity.x = 0;
-                    roverVelocity.z = 0;
-                }
-
-                roverVelocity.y *= verticalDampingFactor;
+            
+            // Standard damping when actively translating (W/S)
+            if (isTranslating && !isRotating) { 
+                roverVelocity.x *= horizontalDampingFactor;
+                roverVelocity.z *= horizontalDampingFactor;
+            } else if (!isTranslating && !isRotating) {
+                // If all keys are released (redundancy: ensures stop even if rotation keys weren't used)
+                roverVelocity.x *= generalBrakingDamping;
+                roverVelocity.z *= generalBrakingDamping;
             }
-    
-    roverVelocity.y *= verticalDampingFactor;
+
+            roverVelocity.y *= verticalDampingFactor; // Vertical damping always applies
+
+            // Hard stop residual linear velocity
+            if (roverVelocity.lengthSq() < 0.001 && !isTranslating) {
+                roverVelocity.x = 0;
+                roverVelocity.z = 0;
+            }
+            // Hard stop residual angular velocity
+            if (!isRotating && Math.abs(roverAngularVelocity) < 0.001) {
+                 roverAngularVelocity = 0;
+            }
 
 
-            // 6. Apply Movement to Position
-            // position += velocity * dt
+            // 7. Apply Movement to Position
             rover.position.addScaledVector(roverVelocity, dt);
 
-            // 7. Altitude Control and Ground Constraint
-            const hoverAltitude = groundCollisionY + 0.5 + Math.sin(clock.getElapsedTime() * 2) * 0.05; // Base hover height + sine wave
+            // 8. Altitude Control and Ground Constraint
+            const hoverAltitude = groundCollisionY + 0.5 + Math.sin(clock.getElapsedTime() * 2) * 0.05;
 
             // Ground Limit (Hard Floor)
             if (rover.position.y <= groundCollisionY + 0.1) {
                 rover.position.y = groundCollisionY + 0.1;
-
+                
+                // Only allow upward velocity when on the ground
                 if (roverVelocity.y < 0) {
                     roverVelocity.y = 0; 
                 }
             } 
             
-            // Soft Spring Back (if not actively thrusting up/down)
+            // Soft spring back to hover altitude (only applies when not actively Q/E thrusting)
             if (!keyStates['q'] && !keyStates['e']) {
                 const targetY = hoverAltitude;
-                // Apply a small force to return to hover altitude (simulated gravity/lift)
                 const restoreForce = (targetY - rover.position.y) * roverMass * 0.4;
                 roverVelocity.y += restoreForce / roverMass * dt;
             }
 
 
-            // 8. Update Camera Target (to follow the Rover)
+            // 9. Update Camera Target (to follow the Rover)
             controls.target.lerp(rover.position, 0.1);
 
             renderer.render(scene, camera);
         }
 
         // --- Start Application ---
-        window.onload = function () {
+        document.addEventListener('DOMContentLoaded', () => {
             init();
-            // The animation loop is started after the user dismisses instructions
-        };
+        });
 
     </script>
 </body>
 </html>
+
