@@ -3,7 +3,8 @@
 Welcome to my interactive 3D developer portfolio!  
 Built with **Three.js**, **HTML**, **CSS**, **Tailwind CSS** and hosted on **GitHub Pages**.
 
-🔗 **Live site:** [https://kledawson.github.io/portfolio/](https://kledawson.github.io/portfolio/)
+<a href="https://kledawson.github.io/portfolio/" target="_blank" rel="noopener noreferrer">Live site</a>
+
 
 ## Features
 - Interactive 3D scene
