@@ -9,7 +9,6 @@ Built with **Three.js**, **HTML**, **CSS**, and hosted on **GitHub Pages**.
 - Interactive 3D scene
 - Orbit camera controls
 - Responsive design
-- Hosted for free on GitHub Pages
 
 ## Tech Stack
 - Three.js
