@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Colony Portfolio - Data Rover</title>
+    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Three.js (r128) --><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Load OrbitControls for camera manipulation --><script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* Ensure the body and canvas cover the full viewport */
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #0A192F; /* Deep space background */
+        }
+        canvas {
+            display: block;
+        }
+        /* Style for the main container to overlay the 3D scene */
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allows clicks to pass through to the canvas unless on a UI element */
+        }
+        /* Ensure UI elements can be interacted with */
+        #nav a, #hero-content button, #info-box {
+            pointer-events: auto;
+            transition: all 0.3s ease;
+        }
+        /* Custom scrollbar for better aesthetics, though not needed yet due to overflow:hidden */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0A192F;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4B5563;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Three.js Canvas Container --><div id="three-container" class="fixed inset-0 z-0"></div>
+
+    <!-- UI Overlay (Tailwind CSS) --><div id="ui-overlay" class="text-gray-100">
+        <!-- Navigation Bar --><header class="p-6 flex justify-between items-center">
+            <h1 class="text-3xl font-extrabold tracking-tight pointer-events-auto">
+                <span class="text-sky-400">DAWSON.</span>LE
+            </h1>
+            <nav id="nav" class="flex space-x-6 pointer-events-auto">
+                <a href="#" class="text-lg hover:text-sky-400 p-2 rounded-lg bg-gray-900/50 backdrop-blur-sm">Mission Log</a>
+                <a href="https://github.com/your-username" target="_blank" class="text-lg hover:text-sky-400 p-2 rounded-lg bg-gray-900/50 backdrop-blur-sm">GitHub Base</a>
+            </nav>
+        </header>
+
+        <!-- Dynamic Project Info Box (appears on hover) --><div id="info-box" class="fixed bottom-8 left-1/2 -translate-x-1/2 p-4 rounded-xl shadow-2xl bg-gray-900/80 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-none border border-sky-500/50">
+            <h3 id="info-title" class="text-xl font-bold text-sky-400"></h3>
+            <p id="info-description" class="text-sm text-gray-300"></p>
+            <a id="info-link" href="#" target="_blank" class="text-sky-300 hover:text-sky-500 text-sm mt-2 block invisible">View Mission ></a>
+        </div>
+
+        <!-- Instructions for the user --><div id="instructions" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-900/80 backdrop-blur-md text-white p-6 rounded-lg shadow-2xl border border-sky-500/50 z-50 text-center pointer-events-auto">
+            <p class="text-lg font-semibold mb-2">Welcome, Explorer!</p>
+            <p class="text-md mb-2">Use **WASD** to move and **A/D** to turn the Rover.</p>
+            <p class="text-md mb-4">Use **Q** to glide up and **E** to glide down.</p>
+            <p class="text-md mb-4">Use your mouse/finger to orbit the camera.</p>
+            <button id="start-exploration" class="bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 px-6 rounded-lg transform hover:scale-105 transition duration-300">
+                Start Exploration
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Three.js setup variables
+        let scene, camera, renderer, controls;
+        let container;
+        let raycaster;
+        let pointer = new THREE.Vector2();
+        let projects = [];
+        let intersectedObject = null;
+        let projectMaterial, roverMaterial, groundMaterial;
+
+        // --- Rover Physics Variables ---
+        let clock = new THREE.Clock(); // For delta time calculation
+        const keyStates = {};
+        
+        let roverMass = 5.0;            // Mass of the rover (for F = ma)
+        const thrustMagnitude = 20.0;   // Force applied by one thruster
+        const roverFriction = 0.75;     // Friction (damping) applied to horizontal velocity (per second)
+        const airFriction = 0.99;       // Air drag applied to vertical velocity (per second)
+        const lunarGravity = 0.5;
+        const rotationSpeedFactor = 0.3;
+        const brakingSpeed = 0.3;
+
+        let roverAngularVelocity = 0; // The current speed of rotation (yaw)
+        const roverAngularAcceleration = 3.0; // How quickly it starts/stops turning (TWEAK THIS)
+        const roverAngularDamping = 0.5; // How quickly it slows down when keys are released (TWEAK THIS)
+        
+        let roverForce = new THREE.Vector3();
+        let roverVelocity = new THREE.Vector3();
+        const groundCollisionY = 0.0; // The Y-coordinate of the ground plane
+
+        let rover;
+
+        const infoBox = document.getElementById('info-box');
+        const infoTitle = document.getElementById('info-title');
+        const infoDescription = document.getElementById('info-description');
+        const infoLink = document.getElementById('info-link');
+        const instructionsOverlay = document.getElementById('instructions');
+        const startExplorationBtn = document.getElementById('start-exploration');
+
+        // --- Initialization ---
+        function init() {
+            container = document.getElementById('three-container');
+
+            // 1. Scene & Background (Starry Sky)
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0A192F); // Deep space background
+
+            // Let's create a simple starfield for the background
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xcccccc,
+                size: 0.1,
+                transparent: true,
+                opacity: 0.7
+            });
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = THREE.MathUtils.randFloatSpread(200);
+                const y = THREE.MathUtils.randFloatSpread(200);
+                const z = THREE.MathUtils.randFloatSpread(200);
+                starVertices.push(x, y, z);
+            }
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+
+
+            // 2. Camera
+            camera = new THREE.PerspectiveCamera(
+                45, // field of view
+                container.clientWidth / container.clientHeight,
+                0.1,
+                1000
+            );
+            camera.position.set(5, 7, 5);
+
+            // 3. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true; // Enable shadows
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+            container.appendChild(renderer.domElement);
+
+            // 4. Materials (defined once for consistency)
+            projectMaterial = new THREE.MeshStandardMaterial({
+                color: 0x0EA5E9, // Tailwind Sky-500
+                metalness: 0.7,
+                roughness: 0.3,
+                emissive: 0x0EA5E9,
+                emissiveIntensity: 0.1,
+                flatShading: true
+            });
+            roverMaterial = new THREE.MeshStandardMaterial({
+                color: 0xFBBD23, // Tailwind Amber-400
+                metalness: 0.8,
+                roughness: 0.2,
+                flatShading: true
+            });
+            groundMaterial = new THREE.MeshStandardMaterial({
+                color: 0x374151, // Tailwind Gray-700
+                metalness: 0.4,
+                roughness: 0.8,
+                flatShading: true
+            });
+
+            // 5. World Objects
+            createWorld();
+
+            // 6. Lighting
+            createLights();
+
+            // 7. Raycaster for picking objects
+            raycaster = new THREE.Raycaster();
+
+            // 8. Controls (OrbitControls, now targeting the Rover)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // smooth camera movement
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 5;
+            controls.maxDistance = 30;
+            controls.target.copy(rover.position); // Camera orbits around the Rover
+            controls.maxPolarAngle = Math.PI / 2 - 0.1; // Prevent camera from going below ground
+
+            // Event Listeners
+            onWindowResize();
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('keydown', onKeyDown, false); // Physics input
+            document.addEventListener('keyup', onKeyUp, false);     // Physics input
+            
+            // Hide instructions when "Start Exploration" is clicked
+            startExplorationBtn.addEventListener('click', () => {
+                instructionsOverlay.style.display = 'none';
+                clock.start(); // Start the clock for physics time tracking
+                animate(); // Start the animation loop after instructions are dismissed
+            });
+
+            // Initial setup: call render once to show the initial scene
+            renderer.render(scene, camera);
+        }
+
+        function createWorld() {
+            // Lunar Ground Plane
+            const groundGeometry = new THREE.PlaneGeometry(80, 80, 64, 64);
+            // Add some height variation for a rugged look
+            const positionAttribute = groundGeometry.attributes.position;
+            for (let i = 0; i < positionAttribute.count; i++) {
+                const z = positionAttribute.getZ(i);
+                positionAttribute.setZ(i, z + Math.random() * 0.5 - 0.25); // Minor height variations
+            }
+            groundGeometry.computeVertexNormals(); // Recalculate normals after changing vertices
+
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = groundCollisionY; // Ground is now at Y=0
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Create Project Structures (Adjusted Y positions for new ground Y=0)
+            const projectData = [
+                { name: "Server Array", description: "Full Stack API & Backend", type: "monolith", position: { x: 10, z: 8 }, link: "https://github.com/repo1" },
+                { name: "AI Core", description: "Machine Learning & Data Pipelines", type: "dome", position: { x: -12, z: 0 }, link: "https://github.com/repo2" },
+                { name: "Game Engine Hub", description: "WebGL & Interactive Experiences", type: "comm", position: { x: 0, z: -15 }, link: "https://github.com/repo3" },
+                { name: "Data Repository", description: "Database Management & ETL", type: "monolith", position: { x: 5, z: -5 }, link: "https://github.com/repo4" },
+                { name: "Simulation Chamber", description: "Physics & AI Agent Testing", type: "dome", position: { x: -8, z: 10 }, link: "https://github.com/repo5" },
+            ];
+
+            projectData.forEach(data => {
+                let mesh;
+                if (data.type === "monolith") {
+                    const geo = new THREE.BoxGeometry(2, 4, 2);
+                    mesh = new THREE.Mesh(geo, projectMaterial.clone());
+                    mesh.position.y = 2.0; // Adjusted for Y=0 ground
+                } else if (data.type === "dome") {
+                    const geo = new THREE.SphereGeometry(2, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2); // Hemisphere
+                    mesh = new THREE.Mesh(geo, projectMaterial.clone());
+                    mesh.rotation.x = -Math.PI / 2;
+                    mesh.position.y = 2.0; // Adjusted for Y=0 ground
+                } else if (data.type === "comm") {
+                    // Communication dish
+                    const dishGeo = new THREE.CylinderGeometry(0.2, 0.2, 3, 8);
+                    const dishMesh = new THREE.Mesh(dishGeo, projectMaterial.clone());
+                    dishMesh.position.y = 1.5;
+
+                    const antennaGeo = new THREE.CylinderGeometry(2, 2, 0.5, 32);
+                    const antennaMesh = new THREE.Mesh(antennaGeo, projectMaterial.clone());
+                    antennaMesh.rotation.x = Math.PI / 2;
+                    antennaMesh.position.set(0, 1.5 + 1.5, 0);
+
+                    mesh = new THREE.Group();
+                    mesh.add(dishMesh);
+                    mesh.add(antennaMesh);
+                    mesh.position.y = 1.0; // Adjusted for Y=0 ground
+                }
+
+                if (mesh) {
+                    mesh.position.x = data.position.x;
+                    mesh.position.z = data.position.z;
+                    mesh.userData = data; // Attach data for raycasting
+                    mesh.castShadow = true;
+                    scene.add(mesh);
+                    projects.push(mesh);
+                }
+            });
+
+            // Create Data Rover
+            const bodyGeo = new THREE.BoxGeometry(1, 0.5, 1.5);
+            const bodyMesh = new THREE.Mesh(bodyGeo, roverMaterial);
+            bodyMesh.position.y = 0.25; // Half body height
+            bodyMesh.castShadow = true;
+
+            const antennaGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+            const antennaMesh = new THREE.Mesh(antennaGeo, roverMaterial);
+            antennaMesh.position.set(0, 0.75, -0.5); // Top of body + offset
+            antennaMesh.castShadow = true;
+
+            rover = new THREE.Group();
+            rover.add(bodyMesh);
+            rover.add(antennaMesh);
+            rover.position.set(0, 0.5, 0); // Start at Y=0.5 (Hover altitude)
+            scene.add(rover);
+        }
+
+        function createLights() {
+            // Ambient Light (Overall dim illumination for space)
+            const ambientLight = new THREE.AmbientLight(0x404040, 3);
+            scene.add(ambientLight);
+
+            // Directional Light (Simulating a distant star/sun)
+            const sunLight = new THREE.DirectionalLight(0xffffff, 5);
+            sunLight.position.set(20, 30, 20);
+            sunLight.castShadow = true;
+            // Configure shadow properties for better quality
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 100;
+            sunLight.shadow.camera.left = -50;
+            sunLight.shadow.camera.right = 50;
+            sunLight.shadow.camera.top = 50;
+            sunLight.shadow.camera.bottom = -50;
+            scene.add(sunLight);
+
+            // A subtle fill light from another direction
+            const fillLight = new THREE.DirectionalLight(0x87CEEB, 1);
+            fillLight.position.set(-15, 10, -15);
+            scene.add(fillLight);
+        }
+
+        // --- Keyboard Input Handlers ---
+        function onKeyDown(event) {
+            keyStates[event.key.toLowerCase()] = true;
+        }
+
+        function onKeyUp(event) {
+            keyStates[event.key.toLowerCase()] = false;
+            // When key is released, reset the accumulated force for that axis
+            if (event.key.toLowerCase() === 'w' || event.key.toLowerCase() === 's') {
+                roverForce.z = 0;
+            }
+            if (event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'e') {
+                roverForce.y = 0;
+            }
+        }
+
+        // --- Event Handlers (Resize and Pointer Move) ---
+        function onWindowResize() {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize(width, height);
+        }
+
+        function onPointerMove(event) {
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Check for project object intersection (raycasting for hover)
+            raycaster.setFromCamera(pointer, camera);
+            const intersects = raycaster.intersectObjects(projects, true);
+
+            if (intersects.length > 0) {
+                let currentIntersected = intersects[0].object;
+                // Find the top-level project object
+                while (currentIntersected && !currentIntersected.userData.name) {
+                    currentIntersected = currentIntersected.parent;
+                }
+
+                if (currentIntersected && intersectedObject !== currentIntersected) {
+                    // Reset previous intersected object's material
+                    if (intersectedObject) {
+                        intersectedObject.traverse(child => {
+                            if (child.isMesh) child.material = projectMaterial.clone();
+                        });
+                    }
+
+                    // Set new intersected object's material and update UI
+                    intersectedObject = currentIntersected;
+                    intersectedObject.traverse(child => {
+                        if (child.isMesh) {
+                            const highlightMaterial = projectMaterial.clone();
+                            highlightMaterial.emissiveIntensity = 0.5;
+                            highlightMaterial.color.setHex(0x38BFF8);
+                            child.material = highlightMaterial;
+                        }
+                    });
+
+                    // Update UI Info Box
+                    infoTitle.textContent = intersectedObject.userData.name;
+                    infoDescription.textContent = intersectedObject.userData.description;
+                    infoLink.href = intersectedObject.userData.link;
+                    infoLink.classList.remove('invisible');
+                    infoBox.style.opacity = '1';
+                    infoBox.style.pointerEvents = 'auto';
+                }
+            } else {
+                // No intersection
+                if (intersectedObject) {
+                    intersectedObject.traverse(child => {
+                        if (child.isMesh) child.material = projectMaterial.clone();
+                    });
+                    intersectedObject = null;
+                    infoBox.style.opacity = '0';
+                    infoLink.classList.add('invisible');
+                    infoBox.style.pointerEvents = 'none';
+                }
+            }
+        }
+
+        // --- Animation Loop (Physics Core) ---
+        function animate() {
+            requestAnimationFrame(animate);
+            let angularAcceleration = 0;
+            const dt = clock.getDelta(); // Get time elapsed since last frame
+            controls.update();
+
+            // 1. Reset Force Vector for this frame
+            roverForce.set(0, 0, 0);
+
+            // 2. Handle Rotation (A/D)
+            if (keyStates['a']) {
+                angularAcceleration += roverAngularAcceleration;
+            }
+            if (keyStates['d']) {
+                angularAcceleration -= roverAngularAcceleration;
+            }
+
+            roverAngularVelocity += angularAcceleration * dt;
+            const angularDampingFactor = Math.pow(roverAngularDamping, dt);
+            roverAngularVelocity *= angularDampingFactor;
+
+            if (!keyStates['a'] && !keyStates['d']) {
+                const brakingFactor = Math.pow(0.3, dt);
+                roverAngularVelocity *= brakingFactor;
+            }
+
+            rover.rotation.y += roverAngularVelocity * dt;
+
+            // 3. Apply Thrust Forces (W/S & Q/E)
+            const localThrust = new THREE.Vector3(0, 0, 0);
+
+            // Forward/Backward (W/S)
+            if (keyStates['w']) {
+                localThrust.z -= thrustMagnitude * 1.5; // -Z is forward in Three.js default orientation
+            }
+            if (keyStates['s']) {
+                localThrust.z += thrustMagnitude * 0.75; // Slower reverse thrust
+            }
+
+            // Vertical Movement (Q/E)
+            if (keyStates['q']) {
+                localThrust.y += thrustMagnitude;
+            }
+            if (keyStates['e']) {
+                localThrust.y -= thrustMagnitude;
+            }
+
+            // Convert local Z thrust to World coordinates and add to global force
+            localThrust.applyQuaternion(rover.quaternion);
+            roverForce.add(localThrust);
+
+            // *** New Step: Apply Constant Gravity Force ***
+            // F_gravity = mass * acceleration_gravity
+            // Add a constant downward force to the total force vector (F)
+            roverForce.y -= roverMass * lunarGravity; 
+            // **********************************************
+
+            // 4. Integration: Update Velocity using (F/m * dt)
+            // acceleration = force / mass
+            // velocity += acceleration * dt
+            roverVelocity.x += roverForce.x / roverMass * dt;
+            roverVelocity.y += roverForce.y / roverMass * dt;
+            roverVelocity.z += roverForce.z / roverMass * dt;
+
+
+            // 5. Apply Damping (Friction)
+            // Use Math.pow(damping, dt) to ensure friction is frame-rate independent.
+            const verticalDampingFactor = Math.pow(airFriction, dt);
+    
+            // Check if ANY directional movement key is pressed
+            const isMoving = keyStates['w'] || keyStates['s'] || keyStates['a'] || keyStates['d'];
+
+            if (isMoving) {
+                // Normal damping when moving (keeps inertia feeling)
+                const activeDampingFactor = Math.pow(roverFriction, dt);
+                roverVelocity.x *= activeDampingFactor;
+                roverVelocity.z *= activeDampingFactor;
+            } else {
+                // **BRAKING** - Rapidly reduce velocity when keys are released
+                // Use a stronger damping factor (e.g., 0.6) to quickly kill speed
+                const brakingDampingFactor = Math.pow(brakingSpeed, dt);
+                roverVelocity.x *= brakingDampingFactor;
+                roverVelocity.z *= brakingDampingFactor;
+
+                // Optionally, ensure velocity is 0 once below a tiny threshold
+                if (roverVelocity.lengthSq() < 0.001) {
+                    roverVelocity.x = 0;
+                    roverVelocity.z = 0;
+                }
+
+                roverVelocity.y *= verticalDampingFactor;
+            }
+    
+    roverVelocity.y *= verticalDampingFactor;
+
+
+            // 6. Apply Movement to Position
+            // position += velocity * dt
+            rover.position.addScaledVector(roverVelocity, dt);
+
+            // 7. Altitude Control and Ground Constraint
+            const hoverAltitude = groundCollisionY + 0.5 + Math.sin(clock.getElapsedTime() * 2) * 0.05; // Base hover height + sine wave
+
+            // Ground Limit (Hard Floor)
+            if (rover.position.y <= groundCollisionY + 0.1) {
+                rover.position.y = groundCollisionY + 0.1;
+
+                if (roverVelocity.y < 0) {
+                    roverVelocity.y = 0; 
+                }
+            } 
+            
+            // Soft Spring Back (if not actively thrusting up/down)
+            if (!keyStates['q'] && !keyStates['e']) {
+                const targetY = hoverAltitude;
+                // Apply a small force to return to hover altitude (simulated gravity/lift)
+                const restoreForce = (targetY - rover.position.y) * roverMass * 0.4;
+                roverVelocity.y += restoreForce / roverMass * dt;
+            }
+
+
+            // 8. Update Camera Target (to follow the Rover)
+            controls.target.lerp(rover.position, 0.1);
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Start Application ---
+        window.onload = function () {
+            init();
+            // The animation loop is started after the user dismisses instructions
+        };
+
+    </script>
+</body>
+</html>
